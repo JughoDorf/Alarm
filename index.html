@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Будильник">
+  <meta name="application-name" content="Будильник">
+  <meta name="description" content="Ночной будильник с обратным отсчётом и синтезированным звуком.">
+  <link rel="manifest" id="manifest">
+  <link rel="apple-touch-icon" id="apple-icon">
+  <title>Будильник</title>
+  <style>
+    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #000; color: #f5f5f7; --accent: #a8f7ca; --muted: #92929a; --border: #252529; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; min-height: 100vh; min-height: 100svh; padding: max(28px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); display: grid; place-items: center; }
+    main { width: min(100%, 560px); }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; font-size: 19px; font-weight: 600; }
+    .current { color: #ccc; font-size: 18px; }
+    .digits { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    .countdown-area { margin: 64px 0 44px; text-align: center; }
+    .eyebrow { color: var(--muted); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; }
+    #countdown { display: block; margin: 12px 0; color: var(--accent); font-size: clamp(48px, 12.5vw, 84px); font-weight: 300; letter-spacing: -.045em; line-height: 1.15; white-space: nowrap; }
+    #schedule { min-height: 22px; margin: 0; color: var(--muted); font-size: 15px; }
+    .time-field { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 20px; background: #0c0c0e; }
+    label { color: #d5d5da; font-size: 16px; }
+    input[type="time"] { min-width: 130px; max-width: 60%; padding: 6px; border: 0; border-radius: 10px; background: #19191d; color: #fff; font: inherit; font-size: 27px; text-align: center; }
+    input:disabled { opacity: .65; }
+    .actions { display: grid; gap: 12px; margin-top: 18px; }
+    button { min-height: 60px; padding: 15px 20px; border: 0; border-radius: 18px; font: inherit; font-size: 17px; font-weight: 650; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    button:active { transform: scale(.985); }
+    button:focus-visible, input:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+    .primary { background: var(--accent); color: #071a10; }
+    .secondary { border: 1px solid var(--border); background: #141417; color: #eee; }
+    .stop { min-height: 80px; background: #ff6f75; color: #250003; font-size: 24px; }
+    .restore { min-height: 48px; background: #292315; color: #ffdda1; font-size: 15px; }
+    .statuses { display: grid; gap: 13px; margin-top: 30px; padding-top: 22px; border-top: 1px solid var(--border); font-size: 13px; }
+    .status { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+    .dot { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #55555c; }
+    .status[data-state="on"] .dot { background: var(--accent); }
+    .status[data-state="warn"] .dot { background: #f4c475; }
+    .status span:last-child { margin-left: auto; text-align: right; max-width: 57%; }
+    .status[data-state="on"] span:last-child { color: var(--accent); }
+    .status[data-state="warn"] span:last-child { color: #f4c475; }
+    .note { margin: 24px 0 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+    #message { margin: 16px 0 0; color: #ffdda1; font-size: 14px; line-height: 1.5; }
+    body.ringing #countdown { color: #ff858a; }
+    @media (max-height: 700px) { .countdown-area { margin: 32px 0 28px; } .statuses { margin-top: 22px; } }
+    @media (prefers-reduced-motion: no-preference) { body.ringing .countdown-area { animation: pulse 1.6s ease-in-out infinite; } @keyframes pulse { 50% { opacity: .55; } } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Будильник</h1>
+      <time id="current-time" class="current digits" aria-label="Текущее время">00:00:00</time>
+    </header>
+    <section class="countdown-area" aria-label="Обратный отсчёт">
+      <div id="countdown-label" class="eyebrow">До сигнала</div>
+      <output id="countdown" class="digits" role="timer" aria-live="off">00:00:00</output>
+      <p id="schedule" role="status">Выберите время пробуждения</p>
+    </section>
+    <form id="alarm-form">
+      <div class="time-field">
+        <label for="alarm-time">Время сигнала</label>
+        <input id="alarm-time" class="digits" type="time" step="60" required>
+      </div>
+      <div class="actions">
+        <button id="set-button" class="primary" type="submit">Установить будильник</button>
+        <button id="cancel-button" class="secondary" type="button" hidden>Отмена</button>
+        <button id="stop-button" class="stop" type="button" hidden>Стоп</button>
+        <button id="restore-button" class="restore" type="button" hidden>Возобновить звук</button>
+      </div>
+    </form>
+    <div class="statuses" aria-label="Состояние">
+      <div id="wake-status" class="status" data-state="off"><i class="dot" aria-hidden="true"></i><span>Экран</span><span id="wake-text">Удержание выключено</span></div>
+      <div id="audio-status" class="status" data-state="off"><i class="dot" aria-hidden="true"></i><span>Фоновый звук</span><span id="audio-text">Выключен</span></div>
+      <div id="notification-status" class="status" data-state="off"><i class="dot" aria-hidden="true"></i><span>Уведомления</span><span id="notification-text">Не запрошены</span></div>
+    </div>
+    <p id="message" role="alert" hidden></p>
+    <p class="note">Оставьте приложение открытым и проверьте громкость iPhone. Тихий фоновый звук помогает поддерживать аудиосеанс, но iOS может приостановить приложение при блокировке экрана или переключении. Для важного пробуждения используйте также системный будильник. Для установки на iPhone: «Поделиться» → «На экран Домой». Удержание экрана и уведомления требуют HTTPS и поддержки браузера. В этой однофайловой версии нет автономного кэша; уведомления на iOS могут быть недоступны.</p>
+  </main>
+  <script>
+    "use strict";
+    const $ = id => document.getElementById(id);
+    const input = $("alarm-time");
+    const countdown = $("countdown");
+    let mode = "idle", deadline = 0, deadlineTimer = null, session = 0;
+    let audioContext = null, keepAliveNodes = [], alarmNodes = [];
+    let wakeLock = null, wakePending = false;
+    const pad = value => String(value).padStart(2, "0");
+    const active = () => mode !== "idle";
+
+    function showMessage(text = "") {
+      $("message").textContent = text;
+      $("message").hidden = !text;
+    }
+    function setStatus(name, text, state = "off") {
+      $(name + "-text").textContent = text;
+      $(name + "-status").dataset.state = state;
+    }
+    function updateAudioStatus() {
+      const running = active() && audioContext?.state === "running";
+      if (!active()) setStatus("audio", "Выключен");
+      else if (running) setStatus("audio", mode === "ringing" ? "Сигнал активен" : "Активен", "on");
+      else setStatus("audio", "Приостановлен", "warn");
+      $("restore-button").hidden = !active() || running;
+    }
+    function updateNotificationStatus() {
+      if (!("Notification" in window)) return setStatus("notification", "Недоступны");
+      const permission = Notification.permission;
+      setStatus("notification", permission === "granted" ? "Разрешены" : permission === "denied" ? "Запрещены" : "Не разрешены", permission === "granted" ? "on" : permission === "denied" ? "warn" : "off");
+    }
+    function updateControls() {
+      input.disabled = active();
+      $("set-button").hidden = active();
+      $("cancel-button").hidden = mode !== "armed";
+      $("stop-button").hidden = mode !== "ringing";
+      document.body.classList.toggle("ringing", mode === "ringing");
+      $("countdown-label").textContent = mode === "ringing" ? "Пора просыпаться" : "До сигнала";
+      updateAudioStatus();
+    }
+    function initializeAudio() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) throw new Error("Этот браузер не поддерживает Web Audio API.");
+      if (!audioContext || audioContext.state === "closed") {
+        const context = new AudioContextClass();
+        audioContext = context;
+        context.addEventListener("statechange", () => { if (audioContext === context) updateAudioStatus(); });
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.value = 30;
+        gain.gain.value = 0.0001;
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start();
+        keepAliveNodes = [oscillator, gain];
+      }
+      // No await before this call: AudioContext resumes in the user gesture.
+      return audioContext.resume();
+    }
+    function requestNotifications() {
+      if (!("Notification" in window) || typeof Notification.requestPermission !== "function" || Notification.permission !== "default") return updateNotificationStatus();
+      try {
+        const result = Notification.requestPermission(updateNotificationStatus);
+        if (result && typeof result.then === "function") result.then(updateNotificationStatus).catch(() => setStatus("notification", "Недоступны в этом режиме", "warn"));
+      } catch { setStatus("notification", "Недоступны в этом режиме", "warn"); }
+    }
+    async function acquireWakeLock() {
+      if (!active()) return;
+      if (!window.isSecureContext || !navigator.wakeLock?.request) return setStatus("wake", "Недоступно", "warn");
+      if (document.visibilityState !== "visible") return setStatus("wake", "Ожидание возврата", "warn");
+      if (wakePending || (wakeLock && !wakeLock.released)) return;
+      wakePending = true;
+      const token = session;
+      setStatus("wake", "Запрос…");
+      try {
+        const sentinel = await navigator.wakeLock.request("screen");
+        if (!active() || token !== session) { await sentinel.release(); return; }
+        wakeLock = sentinel;
+        setStatus("wake", "Удержание активно", "on");
+        sentinel.addEventListener("release", () => {
+          if (wakeLock !== sentinel) return;
+          wakeLock = null;
+          setStatus("wake", active() ? "Удержание снято" : "Удержание выключено", active() ? "warn" : "off");
+        });
+      } catch { if (active() && token === session) setStatus("wake", "Не удалось удержать", "warn"); }
+      finally { wakePending = false; if (active() && token !== session) void acquireWakeLock(); }
+    }
+    function releaseWakeLock() {
+      const sentinel = wakeLock;
+      wakeLock = null;
+      if (sentinel && !sentinel.released) sentinel.release().catch(() => {});
+      setStatus("wake", "Удержание выключено");
+    }
+    function startAlarmSound() {
+      const context = audioContext;
+      if (!context || context.state === "closed" || alarmNodes.length) return;
+      const oscillator = context.createOscillator();
+      const volume = context.createGain();
+      oscillator.type = "square";
+      oscillator.frequency.value = 880;
+      volume.gain.value = 0;
+      // Audio-rate looping envelope: the repeating pattern needs no JS ticks.
+      const buffer = context.createBuffer(1, Math.round(context.sampleRate * 1.6), context.sampleRate);
+      const samples = buffer.getChannelData(0);
+      for (let i = 0; i < samples.length; i++) {
+        const time = i / context.sampleRate;
+        for (const start of [0, 0.3, 0.6]) {
+          const elapsed = time - start;
+          if (elapsed >= 0 && elapsed < 0.18) {
+            samples[i] = Math.min(1, elapsed / 0.005, (0.18 - elapsed) / 0.005);
+            break;
+          }
+        }
+      }
+      const envelope = context.createBufferSource();
+      envelope.buffer = buffer;
+      envelope.loop = true;
+      envelope.connect(volume.gain);
+      oscillator.connect(volume);
+      volume.connect(context.destination);
+      const startAt = context.currentTime + 0.02;
+      oscillator.start(startAt);
+      envelope.start(startAt);
+      alarmNodes = [oscillator, envelope, volume];
+    }
+    function sendAlarmNotification() {
+      if (!("Notification" in window) || Notification.permission !== "granted") return;
+      try { new Notification("Будильник!", { body: "Время вышло!", tag: "alarm-clock", lang: "ru" }); }
+      catch { setStatus("notification", "Системное уведомление недоступно", "warn"); }
+    }
+    function ring() {
+      if (mode !== "armed") return;
+      mode = "ringing";
+      clearTimeout(deadlineTimer);
+      deadlineTimer = null;
+      countdown.textContent = "00:00:00";
+      $("schedule").textContent = "Время вышло!";
+      document.title = "Будильник! — Время вышло!";
+      updateControls();
+      startAlarmSound();
+      const context = audioContext;
+      const token = session;
+      if (context && context.state !== "running") context.resume().catch(() => {
+        if (token !== session || !active()) return;
+        showMessage("Звук приостановлен iOS. Нажмите «Возобновить звук».");
+        updateAudioStatus();
+      });
+      sendAlarmNotification();
+      void acquireWakeLock();
+    }
+    function tick() {
+      const now = new Date();
+      $("current-time").textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+      $("current-time").dateTime = now.toISOString();
+      if (mode !== "armed") return;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return ring();
+      const seconds = Math.ceil(remaining / 1000);
+      countdown.textContent = `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
+    }
+    function armDeadlineTimer() {
+      clearTimeout(deadlineTimer);
+      if (mode !== "armed") return;
+      deadlineTimer = setTimeout(() => { tick(); if (mode === "armed") armDeadlineTimer(); }, Math.max(1, Math.min(deadline - Date.now(), 2147483647)));
+    }
+    function stopNodes(nodes) {
+      for (const node of nodes) {
+        try { if (typeof node.stop === "function") node.stop(); } catch {}
+        try { node.disconnect(); } catch {}
+      }
+    }
+    function resetAlarm() {
+      const wasRinging = mode === "ringing";
+      mode = "idle";
+      session++;
+      deadline = 0;
+      clearTimeout(deadlineTimer);
+      deadlineTimer = null;
+      stopNodes(alarmNodes);
+      stopNodes(keepAliveNodes);
+      alarmNodes = [];
+      keepAliveNodes = [];
+      const context = audioContext;
+      audioContext = null;
+      if (context && context.state !== "closed") context.close().catch(() => {});
+      releaseWakeLock();
+      countdown.textContent = "00:00:00";
+      $("schedule").textContent = wasRinging ? "Сигнал остановлен" : "Будильник отменён";
+      document.title = "Будильник";
+      showMessage();
+      updateControls();
+    }
+    $("alarm-form").addEventListener("submit", event => {
+      event.preventDefault();
+      if (active() || !input.value || !input.checkValidity()) return;
+      const [hours, minutes] = input.value.split(":").map(Number);
+      const now = new Date();
+      const target = new Date(now);
+      target.setHours(hours, minutes, 0, 0);
+      if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1);
+      let resumePromise;
+      try { resumePromise = initializeAudio(); }
+      catch (error) { showMessage(error.message || "Не удалось включить звук."); return; }
+      mode = "armed";
+      session++;
+      deadline = target.getTime();
+      showMessage();
+      $("schedule").textContent = `${target.toDateString() === now.toDateString() ? "Сегодня" : "Завтра"}, ` + target.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      updateControls();
+      tick();
+      armDeadlineTimer();
+      requestNotifications();
+      void acquireWakeLock();
+      const token = session;
+      resumePromise.then(() => { if (token === session && active()) updateAudioStatus(); }).catch(() => {
+        if (token !== session || !active()) return;
+        showMessage("Не удалось включить звук. Нажмите «Возобновить звук».");
+        updateAudioStatus();
+      });
+    });
+    $("cancel-button").addEventListener("click", resetAlarm);
+    $("stop-button").addEventListener("click", resetAlarm);
+    $("restore-button").addEventListener("click", () => {
+      if (!active()) return;
+      const token = session;
+      try {
+        initializeAudio().then(() => {
+          if (token !== session || !active()) return;
+          if (mode === "ringing") startAlarmSound();
+          showMessage();
+          updateAudioStatus();
+          tick();
+        }).catch(() => {
+          if (token === session && active()) { showMessage("Звук недоступен. Проверьте настройки браузера."); updateAudioStatus(); }
+        });
+      } catch (error) { showMessage(error.message || "Не удалось включить звук."); }
+      void acquireWakeLock();
+    });
+    function handleReturn() {
+      tick();
+      updateNotificationStatus();
+      updateAudioStatus();
+      if (active() && document.visibilityState === "visible") {
+        armDeadlineTimer();
+        void acquireWakeLock();
+        if (audioContext && audioContext.state !== "running") {
+          const context = audioContext;
+          context.resume().then(() => { if (audioContext === context) updateAudioStatus(); }).catch(() => { if (audioContext === context) updateAudioStatus(); });
+        }
+      }
+    }
+    document.addEventListener("visibilitychange", handleReturn);
+    window.addEventListener("pageshow", handleReturn);
+    window.addEventListener("focus", handleReturn);
+    function createIcon(size) {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, size, size);
+      ctx.strokeStyle = "#a8f7ca";
+      ctx.lineWidth = size * 0.045;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size * 0.29, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(size / 2, size * 0.32);
+      ctx.lineTo(size / 2, size / 2);
+      ctx.lineTo(size * 0.63, size * 0.57);
+      ctx.stroke();
+      return canvas.toDataURL("image/png");
+    }
+    function installManifest() {
+      try {
+        const icons = [192, 512].map(size => ({ src: createIcon(size), sizes: `${size}x${size}`, type: "image/png", purpose: "any maskable" })).filter(icon => icon.src);
+        const manifest = { id: location.pathname, name: "Ночной будильник", short_name: "Будильник", description: "Будильник с обратным отсчётом и ночным режимом", lang: "ru", start_url: location.href.split("#")[0], scope: new URL("./", location.href).href, display: "standalone", background_color: "#000000", theme_color: "#000000", icons };
+        $("manifest").href = "data:application/manifest+json;charset=utf-8," + encodeURIComponent(JSON.stringify(manifest));
+        const appleIcon = createIcon(180);
+        if (appleIcon) $("apple-icon").href = appleIcon;
+      } catch { /* Installation metadata is optional for alarm operation. */ }
+    }
+    const initialTime = new Date(Date.now() + 60 * 60 * 1000);
+    input.value = `${pad(initialTime.getHours())}:${pad(initialTime.getMinutes())}`;
+    installManifest();
+    updateNotificationStatus();
+    updateControls();
+    tick();
+    setInterval(tick, 200);
+  </script>
+</body>
+</html>
